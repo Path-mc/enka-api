@@ -6,28 +6,40 @@ import os
 import re
 from pathlib import Path
 
-# === init app dengan root_path biar Railway gak 404 di "/" ===
-app = FastAPI(root_path=os.getenv("RAILWAY_STATIC_URL", "/"))
-
-# === folder output biar file tersimpan rapi ===
+app = FastAPI()
 OUTDIR = Path("output")
 OUTDIR.mkdir(exist_ok=True)
 
 def safe_name(s: str) -> str:
     return re.sub(r'[^A-Za-z0-9_.-]', '_', str(s))
 
-# === fungsi bikin banner card ===
-async def make_banner(uid: str):
+# --- update enkanetwork once at startup (may take a while on first run) ---
+@app.on_event("startup")
+async def startup_event():
+    try:
+        print("🔄 Updating enkanetwork data (first run may download many files)...")
+        await encbanner.update()
+        print("✅ enkanetwork update finished")
+    except Exception as e:
+        # jangan crash server — log aja
+        print("⚠️ enkanetwork.update() failed:", e)
+
+# --- helper to create banners safely ---
+async def make_banner_files(uid: str):
     async with encbanner.ENC(uid=uid) as encard:
         result = await encard.creat()
+        # safety checks
         if not result or not getattr(result, "card", None):
             return None
-        filename = OUTDIR / f"banner_{uid}_{safe_name(result.card[0].name)}.png"
-        result.card[0].card.save(filename)  # ambil card pertama saja
-        return str(filename)
+        saved = []
+        for i, card in enumerate(result.card, start=1):
+            filename = OUTDIR / f"banner_{uid}_{i}_{safe_name(card.name)}.png"
+            card.card.save(filename)
+            saved.append(str(filename))
+        return saved
 
-# === fungsi bikin profile card ===
-async def make_profile(uid: str):
+# --- helper to create profile image safely ---
+async def make_profile_file(uid: str):
     async with encbanner.ENC(uid=uid) as encard:
         result = await encard.profile(card=True)
         if not result or not getattr(result, "card", None):
@@ -36,32 +48,46 @@ async def make_profile(uid: str):
         result.card.save(filename)
         return str(filename)
 
-# === endpoint root ===
+# --- root ---
 @app.get("/")
 async def root():
-    return {"message": "✅ EnkaCard API aktif. Gunakan /banner?uid=xxxx atau /profile?uid=xxxx"}
+    return {"message": "EnkaCard API aktif 🚀. endpoint: /banner?uid=NUMERIC_UID  /profile?uid=NUMERIC_UID /debug?uid=NUMERIC_UID"}
 
-# === update data enkanetwork ===
-@app.get("/update")
-async def update_data():
+# --- banner endpoint: return first card image directly ---
+@app.get("/banner")
+async def banner(uid: str):
     try:
-        await encbanner.update()
-        return JSONResponse({"status": "✔ data enkanetwork sudah diupdate"})
+        files = await make_banner_files(uid)
+        if not files:
+            return JSONResponse(status_code=404, content={"error": f"UID {uid} tidak ditemukan / profile private / tidak ada card"})
+        return FileResponse(files[0], media_type="image/png", filename=os.path.basename(files[0]))
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
-# === endpoint banner ===
-@app.get("/banner")
-async def banner(uid: str):
-    filename = await make_banner(uid)
-    if not filename or not os.path.exists(filename):
-        return JSONResponse(status_code=404, content={"error": f"Banner tidak tersedia untuk UID {uid}"})
-    return FileResponse(filename, media_type="image/png", filename=os.path.basename(filename))
-
-# === endpoint profile ===
+# --- profile endpoint: return profile image directly ---
 @app.get("/profile")
 async def profile(uid: str):
-    filename = await make_profile(uid)
-    if not filename or not os.path.exists(filename):
-        return JSONResponse(status_code=404, content={"error": f"Profile tidak tersedia untuk UID {uid}"})
-    return FileResponse(filename, media_type="image/png", filename=os.path.basename(filename))
+    try:
+        fname = await make_profile_file(uid)
+        if not fname or not Path(fname).exists():
+            return JSONResponse(status_code=404, content={"error": f"Profile not available for UID {uid}"})
+        return FileResponse(fname, media_type="image/png", filename=os.path.basename(fname))
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+# --- debug endpoint to inspect result quickly ---
+@app.get("/debug")
+async def debug(uid: str):
+    try:
+        async with encbanner.ENC(uid=uid) as encard:
+            result = await encard.creat()
+            info = {
+                "result_repr": repr(result),
+                "has_card": bool(getattr(result, "card", None))
+            }
+            if getattr(result, "card", None):
+                info["card_count"] = len(result.card)
+                info["card_names"] = [c.name for c in result.card]
+            return info
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
