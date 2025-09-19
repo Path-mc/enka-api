@@ -16,14 +16,17 @@ def safe_name(s: str) -> str:
 # --- update enkanetwork once at startup (may take a while on first run) ---
 @app.on_event("startup")
 async def startup_event():
-    try:
-        print("🔄 Updating enkanetwork data (first run may download many files)...")
-        await encbanner.update()
-        print("✅ enkanetwork update finished")
-    except Exception as e:
-        # jangan crash server — log aja
-        print("⚠️ enkanetwork.update() failed:", e)
+    async def updater():
+        try:
+            print("🔄 Updating enkanetwork data in background...")
+            await encbanner.update()
+            print("✅ enkanetwork update finished")
+        except Exception as e:
+            print("⚠️ enkanetwork.update() failed:", e)
 
+    # Jalanin update di background biar startup gak nunggu
+    asyncio.create_task(updater())
+    
 # --- helper to create banners safely ---
 async def make_banner_files(uid: str):
     async with encbanner.ENC(uid=uid) as encard:
