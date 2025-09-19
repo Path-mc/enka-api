@@ -9,11 +9,6 @@ from pathlib import Path
 # === init app dengan root_path biar Railway gak 404 di "/" ===
 app = FastAPI(root_path=os.getenv("RAILWAY_STATIC_URL", "/"))
 
-# === endpoint root ===
-@app.get("/")
-async def root():
-    return {"message": "✅ EnkaCard API aktif. Gunakan /banner?uid=xxxx atau /profile?uid=xxxx"}
-
 # === folder output biar file tersimpan rapi ===
 OUTDIR = Path("output")
 OUTDIR.mkdir(exist_ok=True)
@@ -40,6 +35,11 @@ async def make_profile(uid: str):
         filename = OUTDIR / f"profile_{uid}_{safe_name(result.player.name)}.png"
         result.card.save(filename)
         return str(filename)
+
+# === endpoint root ===
+@app.get("/")
+async def root():
+    return {"message": "✅ EnkaCard API aktif. Gunakan /banner?uid=xxxx atau /profile?uid=xxxx"}
 
 # === update data enkanetwork ===
 @app.get("/update")
