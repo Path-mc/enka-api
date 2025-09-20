@@ -99,8 +99,6 @@ async def debug(uid: str):
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 # Run with uvicorn when script is executed directly
-if __name__ == "__main__":
+if _name_ == "_main_":
     import uvicorn
-    import os
-    port = int(os.environ.get("PORT", 7860))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run(app, host="0.0.0.0", port=5000)
