@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 
 app = FastAPI()
+
 OUTDIR = Path("output")
 OUTDIR.mkdir(exist_ok=True)
 
@@ -14,15 +15,20 @@ def safe_name(s: str) -> str:
     return re.sub(r'[^A-Za-z0-9_.-]', '_', str(s))
 
 # --- update enkanetwork once at startup (may take a while on first run) ---
-@app.on_event("startup")
-async def startup_event():
+# Run update in background to prevent startup timeout
+async def background_update():
     try:
         print("🔄 Updating enkanetwork data (first run may download many files)...")
         await encbanner.update()
         print("✅ enkanetwork update finished")
     except Exception as e:
-        # jangan crash server — log aja
+        # don't crash server — just log
         print("⚠️ enkanetwork.update() failed:", e)
+
+@app.on_event("startup")
+async def startup_event():
+    # Start the update in background without waiting for it
+    asyncio.create_task(background_update())
 
 # --- helper to create banners safely ---
 async def make_banner_files(uid: str):
@@ -91,3 +97,8 @@ async def debug(uid: str):
             return info
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
+
+# Run with uvicorn when script is executed directly
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=5000)
